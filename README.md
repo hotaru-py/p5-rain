@@ -1,6 +1,4 @@
-![p5.rain: global rain as a field of pixel cells](assets/banner.gif)
-
-# p5.rain
+![p5.rain](assets/banner.gif)
 
 NASA's IMERG global precipitation data as a live, interactive pixel field for [p5.js](https://p5js.org).
 
@@ -60,21 +58,21 @@ Palette and theme changes crossfade. Change anything at any time with `rain.set(
 
 ## Options
 
-| option          | default     |                                                                                         |
-| --------------- | ----------- | --------------------------------------------------------------------------------------- |
+| option          | default     |                                                                                                                                   |
+| --------------- | ----------- | --------------------------------------------------------------------------------------------------------------------------------- |
 | `source`        | `'live'`    | `'live'` (NASA GIBS, decoded in the browser), `'weekly'` (this repo's prepared week, one download) or `{ snapshot: 'week.json' }` |
-| `hours`         | `168`       | hours of history to load (2 to 336)                                                     |
-| `poll`          | `10`        | minutes between checks for a newer hour; `false` to stop                                |
-| `speed`         | `2`         | data-hours played per second; negative plays backwards                                  |
-| `start`         | `0`         | hour to start at (0 = oldest), or `'latest'`                                            |
-| `band`          | `[90, -90]` | latitudes to show, north first; `[30, -30]` is the tropics                              |
-| `fit`           | `'cover'`   | `'cover'` fills the area (cropping), `'contain'` shows the whole band                   |
-| `cellSize`      | `null`      | fixed cell size in pixels (overrides `fit`)                                             |
-| `stain`         | `0.55`      | strength of the faint layer showing total rain over the window, 0 to 1                  |
-| `intensity`     | `1`         | strength of the rain colours, 0 to 1                                                    |
-| `lens`          | `true`      | hover/touch magnifier; `false`, or `{ radius: 120, strength: 7 }`                       |
-| `background`    | `true`      | paint the theme background; `false` draws rain over your own drawing                    |
-| `reducedMotion` | `'respect'` | holds still when the viewer asks for reduced motion; `'ignore'` to always play          |
+| `hours`         | `168`       | hours of history to load (2 to 336)                                                                                               |
+| `poll`          | `10`        | minutes between checks for a newer hour; `false` to stop                                                                          |
+| `speed`         | `2`         | data-hours played per second; negative plays backwards                                                                            |
+| `start`         | `0`         | hour to start at (0 = oldest), or `'latest'`                                                                                      |
+| `band`          | `[90, -90]` | latitudes to show, north first; `[30, -30]` is the tropics                                                                        |
+| `fit`           | `'cover'`   | `'cover'` fills the area (cropping), `'contain'` shows the whole band                                                             |
+| `cellSize`      | `null`      | fixed cell size in pixels (overrides `fit`)                                                                                       |
+| `stain`         | `0.55`      | strength of the faint layer showing total rain over the window, 0 to 1                                                            |
+| `intensity`     | `1`         | strength of the rain colours, 0 to 1                                                                                              |
+| `lens`          | `true`      | hover/touch magnifier; `false`, or `{ radius: 120, strength: 7 }`                                                                 |
+| `background`    | `true`      | paint the theme background; `false` draws rain over your own drawing                                                              |
+| `reducedMotion` | `'respect'` | holds still when the viewer asks for reduced motion; `'ignore'` to always play                                                    |
 
 ## Methods
 
