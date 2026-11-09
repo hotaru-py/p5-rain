@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>p5.rain browser tests</title></head>
+<body>
+<script>
+// Loads p5 (version from ?p5=) and dist/p5.rain.js, then exposes window.runTests().
+const q = new URLSearchParams(location.search);
+const P5 = q.get('p5') || '1.11.3';
+const LIVE = q.has('live');
+const load = (src) => new Promise((ok, fail) => {
+  const s = document.createElement('script');
+  s.src = src; s.onload = ok; s.onerror = () => fail(new Error('load ' + src));
+  document.head.appendChild(s);
+});
+
+window.ready = (async () => {
+  await load(`https://cdn.jsdelivr.net/npm/p5@${P5}/lib/p5.min.js`);
+  await load('/dist/p5.rain.js');
+})();
+
+const sketch = () => new Promise((resolve) => {
+  new p5((p) => {
+    p.setup = () => { p.pixelDensity(1); p.createCanvas(480, 240); p.noLoop(); resolve(p); };
+  });
+});
+const until = async (fn, ms, what) => {
+  const t0 = performance.now();
+  while (!fn()) {
+    if (performance.now() - t0 > ms) throw new Error('timed out waiting for ' + what);
+    await new Promise((r) => setTimeout(r, 50));
+  }
+};
+const step = (f, n) => { for (let i = 0; i < n; i++) f.update(1 / 60); };
+function inkStats(p) {
+  const d = p.drawingContext.getImageData(0, 0, p.width, p.height).data;
+  let ink = 0, clear = 0, r = 0, b = 0;
+  for (let i = 0; i < d.length; i += 4) {
+    if (d[i + 3] === 0) { clear++; continue; }
+    const l = 0.299 * d[i] + 0.587 * d[i + 1] + 0.114 * d[i + 2];
+    if (l > 40) { ink++; r += d[i]; b += d[i + 2]; }
+  }
+  return { ink, clear, red: r / Math.max(1, ink), blue: b / Math.max(1, ink) };
+}
+const SNAP = { snapshot: '/test/fixtures/rain-24h.json' };
+
+window.runTests = async () => {
+  await window.ready;
+  const out = { p5: p5.VERSION, checks: [] };
+  const check = (name, ok, info) => out.checks.push({ name, ok: !!ok, info: info === undefined || info === null ? '' : String(info) });
+
+  const p = await sketch();
+  check('addon registered: createRain / loadRainData on the instance', typeof p.createRain === 'function' && typeof p.loadRainData === 'function');
+  check('library global p5rain', typeof p5rain === 'object' && p5rain.VERSION, typeof p5rain === 'object' ? p5rain.VERSION : 'missing');
+
+  const field = p.createRain({ source: SNAP, speed: 2, lens: false });
+  await until(() => field.ready || field.error, 15000, 'snapshot');
+  check('snapshot loads', field.ready && !field.error, field.error);
+  check('snapshot window is 24 h', field.data.frames.length === 24, field.data.frames.length);
+
+  for (const style of ['breathe', 'flow']) {
+    for (const grid of ['free', 'snap']) {
+      field.set({ style, grid });
+      step(field, 90);
+      const ctx = p.drawingContext, rects = [], orig = ctx.fillRect;
+      ctx.fillRect = function (x, y, w, h) { rects.push([x, y, w, h]); return orig.call(this, x, y, w, h); };
+      field.draw();
+      ctx.fillRect = orig;
+      const s = inkStats(p);
+      check(`${style}/${grid} draws rain`, s.ink > 500, `${s.ink} lit px`);
+      if (grid === 'snap') {
+        const g = field._g, inner = g.cell - 1, mod = (v) => ((v % g.cell) + g.cell) % g.cell;
+        const off = rects.filter(([x, y, w]) => w === inner && (mod(x - g.ox) !== 0 || mod(y - g.oy) !== 0));
+        check(`${style}/snap squares sit exactly on the grid`, off.length === 0, `${off.length} off-grid of ${rects.length}`);
+      }
+    }
+  }
+
+  // time and pick
+  field.set({ style: 'breathe', grid: 'free' }).seek(5);
+  step(field, 1);
+  field.draw();
+  const t = field.time();
+  check('seek + time()', t && Math.abs((t - field.data.earliest) / 3600e3 - 5.0333) < 0.01, t && t.toISOString());
+  let wet = null;
+  for (let y = 5; y < p.height && !wet; y += 3) {
+    for (let x = 5; x < p.width && !wet; x += 3) { const h = field.pick(x, y); if (h && h.rate > 0) wet = h; }
+  }
+  check('pick finds rain with lat/lon/rate/total', wet && wet.rate > 0 && wet.total > 0 && Math.abs(wet.lat) <= 90 && Math.abs(wet.lon) <= 180,
+    wet && JSON.stringify({ lat: wet.lat, lon: wet.lon, rate: +wet.rate.toFixed(2) }));
+  check('pick outside the field is null', field.pick(-10, -10) === null);
+
+  // palette crossfade: ocean is blue-dominant, ember red-dominant on dark
+  field.set({ palette: 'ocean' }); step(field, 60); field.draw();
+  const ocean = inkStats(p);
+  field.set({ palette: 'ember' }); step(field, 60); field.draw();
+  const ember = inkStats(p);
+  check('palette switch changes colours (ocean blue, ember red)', ocean.blue > ocean.red && ember.red > ember.blue,
+    `ocean r${ocean.red | 0}/b${ocean.blue | 0} ember r${ember.red | 0}/b${ember.blue | 0}`);
+
+  // light theme background
+  field.set({ theme: 'light', palette: 'ocean' }); step(field, 120); field.draw();
+  const px = p.drawingContext.getImageData(1, 1, 1, 1).data;
+  check('light theme paints the light background', px[0] > 230 && px[1] > 230, Array.from(px).join(','));
+
+  // transparent mode inside a sub-rectangle
+  p.clear();
+  const overlay = p.createRain({ source: SNAP, background: false, band: [30, -30], lens: false });
+  await until(() => overlay.ready, 5000, 'shared data');
+  check('same source shares one data load', overlay.data === field.data);
+  step(overlay, 30);
+  overlay.draw(0, 60, 480, 120);
+  const o = inkStats(p);
+  const top = p.drawingContext.getImageData(10, 10, 1, 1).data[3];
+  check('background:false leaves the canvas transparent and draws rain', o.clear > 1000 && o.ink > 100 && top === 0, `clear ${o.clear}, ink ${o.ink}`);
+
+  // playback controls
+  const f2 = p.createRain({ source: SNAP, lens: false, speed: 2 });
+  step(f2, 1);
+  f2.seek(new Date(f2.data.earliest.getTime() + 10 * 3600e3));
+  check('seek(Date) jumps to that hour', Math.abs((f2.time() - f2.data.earliest) / 3600e3 - 10) < 1e-6, f2.time().toISOString());
+  f2.set({ speed: -2 }); step(f2, 30);
+  check('negative speed plays backwards', (f2.time() - f2.data.earliest) / 3600e3 < 10 - 0.9, ((f2.time() - f2.data.earliest) / 3600e3).toFixed(3));
+  f2.set({ speed: 2 }).pause();
+  const tPaused = f2.time().getTime(); step(f2, 60);
+  check('pause() holds time', f2.time().getTime() === tPaused && f2.paused);
+  f2.play(); step(f2, 60);
+  check('play() resumes', f2.time().getTime() > tPaused);
+
+  // reduced motion and auto theme, via a stubbed matchMedia
+  const realMM = window.matchMedia;
+  const stubMM = (q) => (query) => ({ matches: q.test(query), media: query, addEventListener() {}, removeEventListener() {} });
+  window.matchMedia = stubMM(/reduce/);
+  const tRM = f2.time().getTime(); step(f2, 60);
+  check('reducedMotion "respect" holds still when the viewer asks', f2.time().getTime() === tRM);
+  f2.set({ reducedMotion: 'ignore' }); step(f2, 60);
+  check('reducedMotion "ignore" keeps playing', f2.time().getTime() > tRM);
+  window.matchMedia = stubMM(/light/);
+  f2.set({ theme: 'auto' }); step(f2, 120); f2.draw();
+  const autoPx = p.drawingContext.getImageData(1, 1, 1, 1).data;
+  check('theme "auto" follows prefers-color-scheme', autoPx[0] > 230, Array.from(autoPx).join(','));
+  window.matchMedia = realMM;
+  f2.set({ theme: 'dark' });
+
+  // geometry
+  f2.set({ fit: 'contain' }); f2.draw();
+  check('fit "contain" shows the whole band', f2._g.cell === 2 && f2._g.ox >= 0 && f2._g.oy >= 0, JSON.stringify({ cell: f2._g.cell, ox: f2._g.ox, oy: f2._g.oy }));
+  f2.set({ fit: 'cover', cellSize: 5 }); f2.draw();
+  check('cellSize fixes the cell size', f2._g.cell === 5, f2._g.cell);
+  f2.set({ cellSize: null }); f2.draw();
+
+  // lens: boosts cells under the pointer; pushes them aside only in free grid
+  const lensField = p.createRain({ source: SNAP, grid: 'free' });
+  step(lensField, 1); lensField.draw();
+  lensField.pointer(240, 120); step(lensField, 1);
+  const boosted = lensField.boost.some((v) => v > 0), pushed = lensField.dispX.some((v) => v !== 0);
+  lensField.set({ grid: 'snap' }); step(lensField, 1);
+  const pushedSnap = lensField.dispX.some((v) => v !== 0);
+  check('lens boosts cells, pushes them only in free grid', boosted && pushed && !pushedSnap, JSON.stringify({ boosted, pushed, pushedSnap }));
+  lensField.pointer(null); step(lensField, 1);
+  check('pointer(null) releases the lens', !lensField.boost.some((v) => v > 0));
+
+  // stain cache: copied from an offscreen canvas, identical to drawing every cell live
+  // (update(0) re-applies the lens without moving time or the breathe drift)
+  const grab = () => p.drawingContext.getImageData(0, 0, p.width, p.height).data;
+  const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
+  const live = (f) => { const ctx = p.drawingContext; ctx.getTransform = undefined; f.draw(); delete ctx.getTransform; return grab(); };
+  lensField.set({ grid: 'free' }).pause();
+  lensField.update(0); lensField.draw();
+  const cachedA = grab(), sc = lensField._stainCache && lensField._stainCache.cv.getContext('2d');
+  let redraws = 0; const scFill = sc && sc.fillRect;
+  if (sc) sc.fillRect = function (...a) { redraws++; return scFill.apply(this, a); };
+  lensField.draw();
+  if (sc) sc.fillRect = scFill;
+  check('stain layer is cached and not redrawn while nothing changes', sc && redraws === 0, `${redraws} cache redraws`);
+  check('cached stain matches drawing every cell live', same(cachedA, live(lensField)));
+  lensField.pointer(240, 120); lensField.update(0); lensField.draw();
+  const cachedLens = grab();
+  check('cached stain with the lens pushing matches live drawing', !same(cachedLens, cachedA) && same(cachedLens, live(lensField)));
+  lensField.pointer(null); lensField.update(0); lensField.draw();
+  check('moving the lens away leaves no trace in the cached stain', same(grab(), cachedA));
+  lensField.play();
+
+  // a new hour arriving moves the window; fields keep showing the same moment
+  const d = f2.data, before = f2.time().getTime();
+  d.frames.push(d.frames[d.frames.length - 1]); d.snow.push(d.snow[d.snow.length - 1]);
+  d.times.push(new Date(d.latest.getTime() + 3600e3));
+  d.frames.shift(); d.snow.shift(); d.times.shift();
+  d._finish(); d._emit('update', { data: d, added: 1, shifted: 1 });
+  check('live update keeps the shown time steady', Math.abs(f2.time().getTime() - before) < 1000, `${(f2.time().getTime() - before) / 1000}s drift`);
+  lensField.remove();
+  const fBefore = lensField.st.f;
+  d._emit('update', { data: d, added: 1, shifted: 1 });
+  check('remove() stops listening for updates', lensField.st.f === fBefore);
+
+  // sources
+  const bad = p.loadRainData({ feed: 'latest.json' }, { poll: false });
+  await until(() => bad.ready || bad.error, 5000, 'unknown source');
+  check('an unknown source reports how to fix it', /source must be "live" or \{ snapshot/.test(String(bad.error)), bad.error);
+
+  // validation
+  const err = (fn) => { try { fn(); return ''; } catch (e) { return e.message; } };
+  check('unknown option is rejected', /unknown option "colour"/.test(err(() => p.createRain({ colour: 'red' }))));
+  check('bad style is rejected', /style must be one of/.test(err(() => field.set({ style: 'wobble' }))));
+  check('unknown palette is rejected', /unknown palette/.test(err(() => field.set({ palette: 'nope' }))));
+  check('a rejected set() leaves options unchanged', field.options.style === 'breathe' && field.options.palette === 'ocean', JSON.stringify({ style: field.options.style, palette: field.options.palette }));
+  const gl = await new Promise((resolve) => new p5((g) => { g.setup = () => { g.createCanvas(50, 50, g.WEBGL); g.noLoop(); resolve(g); }; }));
+  check('WEBGL canvas gets a clear error', /2D canvas/.test(err(() => gl.createRain({ source: SNAP }))));
+
+  if (LIVE) {
+    const live = p.loadRainData('live', { hours: 3, poll: false });
+    await until(() => live.ready || live.error, 90000, 'live NASA data');
+    check('live NASA GIBS load (3 h)', live.ready && live.frames.length === 3, live.error || (live.latest && live.latest.toISOString()));
+  }
+  return out;
+};
+</script>
+</body>
+</html>

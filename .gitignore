@@ -1,0 +1,7 @@
+node_modules/
+dist/
+wip/
+.DS_Store
+*.log
+*/renders/
+public/

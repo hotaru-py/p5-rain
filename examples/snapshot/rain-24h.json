@@ -1,0 +1,12 @@
+{
+  "format": "p5rain-snapshot",
+  "version": 1,
+  "start": "2026-11-08T05:00:00.000Z",
+  "hours": 24,
+  "cols": 240,
+  "rows": 120,
+  "encoding": "binary",
+  "data": "rain-24h.bin",
+  "source": "NASA GPM IMERG 30-min precipitation via GIBS",
+  "exported": "2026-11-09T10:32:23.878Z"
+}
