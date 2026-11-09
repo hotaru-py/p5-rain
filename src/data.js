@@ -9,15 +9,25 @@ import { computeMotion, BASE } from './motion.js';
 const cache = new Map();
 const HOUR = 3600e3;
 
+/** The week published every Monday by this repo's GitHub Actions (see README, "Weekly data"). */
+export const WEEKLY_URL = 'https://hotaru-py.github.io/p5-rain/data/week.json';
+
+/** 'weekly' -> the published week, falling back to live NASA if it can't be fetched. */
+export function resolveSource(source) {
+  if (source === 'weekly') return { snapshot: WEEKLY_URL, fallback: 'live' };
+  return source;
+}
+
 export class RainData {
   /**
    * Get (or start loading) shared data.
-   * @param {'live'|{snapshot: string}} [source='live']
+   * @param {'live'|'weekly'|{snapshot: string, fallback?: 'live'|object}} [source='live']
    * @param {{hours?: number, poll?: number|false, concurrency?: number}} [opts]
    *        hours: window length (2..336, default 168 = 7 days)
    *        poll: minutes between checks for a new hour (live only; default 10; false = never)
    */
   static get(source = 'live', opts = {}) {
+    source = resolveSource(source);
     const key = JSON.stringify([source, opts.hours || 168]);
     let d = cache.get(key);
     if (!d) {
@@ -37,7 +47,7 @@ export class RainData {
     this.total = new Float32Array(N); this.totalMax = 1;
     this.loaded = 0; this.ready = false; this.error = null;
     this.version = 0; this.snapshot = null;
-    this.mode = null; // 'live' | 'snapshot'
+    this.mode = null; this.fellBack = null; // 'live' | 'snapshot'; why a snapshot fell back
     this._listeners = {}; this._motion = new Map(); this._cm = null; this._timer = null;
   }
 
@@ -76,8 +86,19 @@ export class RainData {
 
   async _load(src) {
     if (src === 'live') { this.mode = 'live'; return this._loadLive(); }
-    if (src && typeof src === 'object' && src.snapshot) { this.mode = 'snapshot'; return this._loadSnapshot(src.snapshot); }
-    throw new Error('p5.rain: source must be "live" or { snapshot: "file.json" }');
+    if (src && typeof src === 'object' && src.snapshot) {
+      try {
+        this.mode = 'snapshot';
+        return await this._loadSnapshot(src.snapshot);
+      } catch (e) {
+        if (!src.fallback) throw e;
+        console.warn(`${e.message}; using ${typeof src.fallback === 'string' ? src.fallback : 'the fallback'} instead`);
+        this.fellBack = e.message;
+        this.frames = []; this.snow = []; this.times = []; this.loaded = 0;
+        return this._load(src.fallback);
+      }
+    }
+    throw new Error('p5.rain: source must be "live", "weekly" or { snapshot: "file.json" }');
   }
 
   async _loadSnapshot(url) {

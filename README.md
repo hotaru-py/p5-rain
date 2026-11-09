@@ -26,12 +26,14 @@ function draw() {
 
 ## Install
 
-`npm install` builds `dist/`; copy `dist/p5.rain.min.js` next to your sketch and load it after p5.js:
+Load it after p5.js, straight from this repo's GitHub Pages:
 
 ```html
 <script src="https://cdn.jsdelivr.net/npm/p5@1.11.3/lib/p5.min.js"></script>
-<script src="p5.rain.min.js"></script>
+<script src="https://hotaru-py.github.io/p5-rain/dist/p5.rain.min.js"></script>
 ```
+
+Or build it yourself: `npm install` builds `dist/`; copy `dist/p5.rain.min.js` next to your sketch.
 
 Or use it from another project as a Git dependency, which builds on install:
 
@@ -60,7 +62,7 @@ Palette and theme changes crossfade. Change anything at any time with `rain.set(
 
 | option          | default     |                                                                                         |
 | --------------- | ----------- | --------------------------------------------------------------------------------------- |
-| `source`        | `'live'`    | `'live'` (NASA GIBS, fetched and decoded in the browser) or `{ snapshot: 'week.json' }` |
+| `source`        | `'live'`    | `'live'` (NASA GIBS, decoded in the browser), `'weekly'` (this repo's prepared week, one download) or `{ snapshot: 'week.json' }` |
 | `hours`         | `168`       | hours of history to load (2 to 336)                                                     |
 | `poll`          | `10`        | minutes between checks for a newer hour; `false` to stop                                |
 | `speed`         | `2`         | data-hours played per second; negative plays backwards                                  |
@@ -98,8 +100,24 @@ same source shares one download.
 a new hour arrives and the window moves forward. `data.mode` is `'live'` or `'snapshot'`.
 
 **Live** (`'live'`, the default): the browser fetches 168 hourly images from NASA GIBS and
-decodes them itself. Nothing to host, but the first load takes about 20 seconds; after that it
-checks for a new hour every 10 minutes.
+decodes them itself. Always the newest hours, but the first load takes about 20 seconds; after
+that it checks for a new hour every 10 minutes.
+
+**Weekly** (`'weekly'`): the same week, fetched and decoded ahead of time. Every Monday at
+06:00 UTC a GitHub Actions job in this repo pulls the last 168 hours from NASA and publishes them
+on GitHub Pages, so a sketch loads the whole week in one 1.9 MB download instead of 168 requests to
+NASA. The data is up to a week old by the following Monday, and the sketch doesn't poll for new hours.
+If the file can't be fetched, it falls back to live NASA (`data.fellBack` says why).
+
+The files are public and load from any site (Pages allows cross-origin requests):
+
+- `https://hotaru-py.github.io/p5-rain/data/week.json`: metadata (start time, hours, any hours
+  NASA was missing and that were filled from a neighbour, under `filled`)
+- `https://hotaru-py.github.io/p5-rain/data/week.bin`: the frames, in the snapshot format below
+
+A fork publishes its own copy: enable Pages (Settings → Pages → Source: GitHub Actions) and run
+the **Weekly data** workflow once from the Actions tab. GitHub pauses scheduled workflows in
+public repos after 60 days without activity; re-enable it from the same tab.
 
 A **snapshot** is a recorded window, for pages that can't reach NASA (sandboxes, offline demos)
 or to freeze a particular week:
@@ -107,10 +125,12 @@ or to freeze a particular week:
 ```js
 const snap = rain.data.toSnapshot({ name: "week" }); // { meta, bytes }  → week.json + week.bin
 createRain({ source: { snapshot: "week.json" } });
+createRain({ source: { snapshot: "week.json", fallback: "live" } }); // live NASA if the file is missing
 ```
 
-From the command line: `node scripts/export-snapshot.mjs out/ --name week` (add `--base64`
-for hosts that only serve text files). A week is about 1.9 MB.
+From the command line: `node scripts/weekly/fetch-week.mjs --out out/` (plain Node, what the
+weekly job runs), or `node scripts/export-snapshot.mjs out/ --name week` (through the built
+plugin in Chrome; add `--base64` for hosts that only serve text files). A week is about 1.9 MB.
 
 ## Custom palettes
 
@@ -167,7 +187,8 @@ Rain ramps run from light rain (0.1 mm/h) to extreme (50 mm/h) on a log scale.
 
 ## Examples
 
-`npm run build && npm run examples`, then open:
+Online at [hotaru-py.github.io/p5-rain/examples](https://hotaru-py.github.io/p5-rain/examples/),
+or locally with `npm run build && npm run examples`:
 
 - `examples/basic/`: the smallest sketch
 - `examples/controls/`: every option, plus what's under the cursor
@@ -182,6 +203,10 @@ npm run build            # dist/p5.rain.js, p5.rain.min.js, p5.rain.esm.js
 npm test                 # unit tests (Node)
 npm run test:browser     # p5 1.11.3 and 2.0.5 in headless Chrome; add -- --live to hit NASA
 ```
+
+Two workflows run on GitHub: **CI** (tests on every push and pull request) and **Weekly data**
+(the Monday NASA fetch and Pages deploy above; also runnable by hand, which is how changes to
+`src/` or `examples/` reach Pages).
 
 ## License
 

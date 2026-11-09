@@ -1,0 +1,55 @@
+# Every Monday: fetch the latest week of NASA IMERG rain from GIBS, decode it into p5.rain's
+# snapshot format, and publish it on GitHub Pages with the built library and the examples:
+#   https://hotaru-py.github.io/p5-rain/data/week.json (+ week.bin)   <- source: 'weekly'
+#   https://hotaru-py.github.io/p5-rain/dist/p5.rain.min.js
+#   https://hotaru-py.github.io/p5-rain/examples/
+# Pages sends Access-Control-Allow-Origin: *, so any site can load these files.
+# Run it by hand from the Actions tab after changing src/ or the examples.
+name: Weekly data
+
+on:
+  schedule:
+    - cron: '0 6 * * 1' # Mondays 06:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - name: Fetch the week from NASA
+        run: node scripts/weekly/fetch-week.mjs --out public/data
+      - name: Add the library and examples
+        run: |
+          cp -r dist examples public/
+          printf '<!doctype html><meta charset="utf-8"><title>p5.rain</title><meta http-equiv="refresh" content="0; url=examples/"><a href="examples/">p5.rain examples</a>\n' > public/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

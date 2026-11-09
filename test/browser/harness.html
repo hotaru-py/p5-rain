@@ -195,7 +195,15 @@ window.runTests = async () => {
   // sources
   const bad = p.loadRainData({ feed: 'latest.json' }, { poll: false });
   await until(() => bad.ready || bad.error, 5000, 'unknown source');
-  check('an unknown source reports how to fix it', /source must be "live" or \{ snapshot/.test(String(bad.error)), bad.error);
+  check('an unknown source reports how to fix it', /source must be "live", "weekly" or \{ snapshot/.test(String(bad.error)), bad.error);
+  const wk = p5rain.resolveSource('weekly');
+  check("'weekly' is the published week, falling back to live", wk.snapshot === p5rain.WEEKLY_URL && wk.fallback === 'live', JSON.stringify(wk));
+  const fb = p.loadRainData({ snapshot: '/test/fixtures/missing.json', fallback: SNAP }, { poll: false, hours: 24 });
+  await until(() => fb.ready || fb.error, 10000, 'snapshot fallback');
+  check('a missing snapshot uses its fallback', fb.ready && fb.frames.length === 24 && /not found/.test(fb.fellBack || ''), fb.error || fb.fellBack);
+  const nofb = p.loadRainData({ snapshot: '/test/fixtures/missing.json' }, { poll: false });
+  await until(() => nofb.ready || nofb.error, 10000, 'snapshot without fallback');
+  check('a missing snapshot without fallback reports an error', !nofb.ready && /not found/.test(String(nofb.error)), nofb.error);
 
   // validation
   const err = (fn) => { try { fn(); return ''; } catch (e) { return e.message; } };
@@ -210,6 +218,9 @@ window.runTests = async () => {
     const live = p.loadRainData('live', { hours: 3, poll: false });
     await until(() => live.ready || live.error, 90000, 'live NASA data');
     check('live NASA GIBS load (3 h)', live.ready && live.frames.length === 3, live.error || (live.latest && live.latest.toISOString()));
+    const weekly = p.loadRainData('weekly', { poll: false });
+    await until(() => weekly.ready || weekly.error, 120000, 'weekly data');
+    check("'weekly' loads (published week, or live if it isn't up yet)", weekly.ready, weekly.error || `${weekly.mode}${weekly.fellBack ? ', fell back: ' + weekly.fellBack : ''}`);
   }
   return out;
 };

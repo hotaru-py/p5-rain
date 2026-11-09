@@ -4,7 +4,7 @@
 //   function setup() { createCanvas(800, 400); rain = createRain({ style: 'flow' }); }
 //   function draw()  { rain.update(); rain.draw(); }
 
-import { RainData } from './data.js';
+import { RainData, WEEKLY_URL, resolveSource } from './data.js';
 import { RainField, DEFAULTS } from './field.js';
 import { PALETTES, BACKGROUNDS, addPalette, paletteLUT } from './palettes.js';
 import { encodeSnapshot, decodeSnapshot, encodeFrame, decodeFrame, fetchSnapshot, toBase64, fromBase64, SNAPSHOT_FORMAT } from './snapshot.js';
@@ -23,7 +23,7 @@ export function p5rainAddon(p5, fn, lifecycles) {
     (this._p5rainFields || (this._p5rainFields = [])).push(field);
     return field;
   };
-  /** Start (or reuse) a shared data load: 'live' or { snapshot: url }. */
+  /** Start (or reuse) a shared data load: 'live', 'weekly' or { snapshot: url }. */
   fn.loadRainData = function (source, options) {
     return RainData.get(source, options);
   };
@@ -46,7 +46,7 @@ export function install(p5) {
 if (typeof window !== 'undefined' && window.p5) install(window.p5);
 
 export {
-  RainData, RainField, DEFAULTS,
+  RainData, RainField, DEFAULTS, WEEKLY_URL, resolveSource,
   PALETTES, BACKGROUNDS, addPalette, paletteLUT,
   encodeSnapshot, decodeSnapshot, encodeFrame, decodeFrame, fetchSnapshot, toBase64, fromBase64, SNAPSHOT_FORMAT,
   parseColormap, decodePixels, lookup, computeMotion,

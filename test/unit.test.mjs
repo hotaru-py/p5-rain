@@ -148,3 +148,65 @@ test('single frames round-trip through the frame format', () => {
   assert.equal(f.rate[1], 0);
   assert.throws(() => decodeFrame(new Uint8Array([5, 0, 0, 0])), /truncated/);
 });
+
+// ---------------------------------------------------------------- PNG decoder (weekly job)
+import zlib from 'node:zlib';
+import { decodePNG } from '../scripts/weekly/png.mjs';
+
+// tiny PNG encoder for tests: applies the given filter type to every row
+function makePNG(width, height, type, rows, filterFor, plte, trns) {
+  const ch = { 0: 1, 2: 3, 3: 1, 4: 2, 6: 4 }[type], stride = width * ch;
+  const raw = Buffer.alloc((stride + 1) * height);
+  for (let y = 0; y < height; y++) {
+    const f = filterFor(y), cur = rows[y], prev = y ? rows[y - 1] : new Uint8Array(stride);
+    raw[y * (stride + 1)] = f;
+    for (let x = 0; x < stride; x++) {
+      const a = x >= ch ? cur[x - ch] : 0, b = prev[x], c = x >= ch ? prev[x - ch] : 0;
+      const pred = f === 0 ? 0 : f === 1 ? a : f === 2 ? b : f === 3 ? (a + b) >> 1
+        : (() => { const p = a + b - c, pa = Math.abs(p - a), pb = Math.abs(p - b), pc = Math.abs(p - c); return pa <= pb && pa <= pc ? a : pb <= pc ? b : c; })();
+      raw[y * (stride + 1) + 1 + x] = (cur[x] - pred) & 255;
+    }
+  }
+  const chunk = (kind, body) => {
+    const len = Buffer.alloc(4); len.writeUInt32BE(body.length);
+    const kb = Buffer.concat([Buffer.from(kind, 'ascii'), body]);
+    const crc = Buffer.alloc(4); crc.writeUInt32BE(zlib.crc32(kb));
+    return Buffer.concat([len, kb, crc]);
+  };
+  const ihdr = Buffer.alloc(13);
+  ihdr.writeUInt32BE(width, 0); ihdr.writeUInt32BE(height, 4); ihdr[8] = 8; ihdr[9] = type;
+  return Buffer.concat([
+    Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr),
+    ...(plte ? [chunk('PLTE', Buffer.from(plte))] : []), ...(trns ? [chunk('tRNS', Buffer.from(trns))] : []),
+    chunk('IDAT', zlib.deflateSync(raw)), chunk('IEND', Buffer.alloc(0)),
+  ]);
+}
+
+test('PNG decoder handles all five row filters (RGBA)', () => {
+  const w = 7, h = 10, rows = [];
+  let s = 3;
+  for (let y = 0; y < h; y++) rows.push(Uint8Array.from({ length: w * 4 }, () => (s = (s * 73 + 41) % 256)));
+  const png = decodePNG(makePNG(w, h, 6, rows, (y) => y % 5));
+  assert.equal(png.width, w);
+  assert.deepEqual(Array.from(png.data), rows.flatMap((r) => Array.from(r)));
+});
+
+test('PNG decoder expands palette PNGs with transparency', () => {
+  const png = decodePNG(makePNG(3, 1, 3, [Uint8Array.from([0, 1, 2])], () => 0, [10, 20, 30, 40, 50, 60, 70, 80, 90], [0, 128]));
+  assert.deepEqual(Array.from(png.data), [10, 20, 30, 0, 40, 50, 60, 128, 70, 80, 90, 255]);
+});
+
+test('PNG decoder reads a real NASA GIBS IMERG frame', () => {
+  const png = decodePNG(fs.readFileSync(new URL('./fixtures/gibs-imerg-2026110904.png', import.meta.url)));
+  assert.equal(png.width, 480); assert.equal(png.height, 240);
+  let opaque = 0;
+  for (let i = 3; i < png.data.length; i += 4) if (png.data[i] === 255) opaque++;
+  assert.equal(opaque, 7283); // same count Chrome's decoder gives for this file
+  const grid = decodePixels(png.data, png.width, png.height, parseColormap(xml));
+  assert.equal(grid.any, true);
+  assert.ok(grid.rate.some((r) => r > 5), 'has heavy rain somewhere');
+});
+
+test('PNG decoder rejects what it cannot read', () => {
+  assert.throws(() => decodePNG(Buffer.from('not a png')), /not a PNG/);
+});

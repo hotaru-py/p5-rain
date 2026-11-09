@@ -19,7 +19,7 @@ const THEMES = ['dark', 'light', 'auto'];
 const FITS = ['cover', 'contain'];
 
 export const DEFAULTS = Object.freeze({
-  source: 'live',      // 'live' (NASA GIBS) | { snapshot: url }
+  source: 'live',      // 'live' (NASA GIBS) | 'weekly' (the repo's published week) | { snapshot: url, fallback? }
   hours: 168,          // window length when loading (7 days)
   poll: 10,            // minutes between checks for a new hour (live); false = never
   palette: 'ocean',    // 'ocean' | 'moss' | 'ember' | any name registered with addPalette()
